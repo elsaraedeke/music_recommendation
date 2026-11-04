@@ -1,11 +1,7 @@
-"""Shared PostgreSQL connection for the music recommendation project."""
-
 import os
 from pathlib import Path
-
 import psycopg
 from dotenv import load_dotenv
-
 
 def get_connection(*, read_only: bool = False) -> psycopg.Connection:
     """Open a connection; use it in a with block to close it automatically."""
