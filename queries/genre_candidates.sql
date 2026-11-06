@@ -1,4 +1,3 @@
--- Same parameters as popularity_candidates.sql; no usable history falls back to popularity.
 WITH genre_counts AS (
     SELECT track_id, COUNT(*) AS n FROM public.song_genres GROUP BY track_id
 ), preferences AS (
