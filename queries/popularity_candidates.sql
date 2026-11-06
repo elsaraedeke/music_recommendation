@@ -1,4 +1,3 @@
--- psycopg parameters: user_id, cutoff (timezone-aware datetime), k (positive integer).
 SELECT s.track_id, s.track_name, a.artist_name, s.track_popularity::numeric AS score
 FROM public.songs s
 JOIN public.artists a ON a.artist_id = s.artist_id
