@@ -320,6 +320,25 @@ ALTER TABLE ONLY public.songs
     ADD CONSTRAINT songs_genre_id_fkey FOREIGN KEY (genre_id) REFERENCES public.genres(genre_id);
 
 
+CREATE TABLE public.recommendation_runs (
+    run_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES public.users(user_id),
+    method text NOT NULL CHECK (method IN ('popularity_v1', 'genre_v1')),
+    generated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    history_cutoff timestamptz NOT NULL,
+    requested_k integer NOT NULL CHECK (requested_k > 0)
+);
+
+CREATE TABLE public.recommendation_items (
+    run_id bigint NOT NULL REFERENCES public.recommendation_runs(run_id) ON DELETE CASCADE,
+    track_id varchar(300) NOT NULL REFERENCES public.songs(track_id),
+    rank integer NOT NULL CHECK (rank > 0),
+    score numeric NOT NULL CHECK (score >= 0),
+    PRIMARY KEY (run_id, track_id),
+    UNIQUE (run_id, rank)
+);
+
+
 --
 -- PostgreSQL database dump complete
 --
