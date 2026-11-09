@@ -201,7 +201,13 @@ CREATE TABLE public.track_likes (
 	user_id integer NOT NULL,
 	track_id character varying(50) NOT NULL,
 	liked_when timestamp with time zone NOT NULL
-)
+);
+
+CREATE TABLE public.generation_batches (
+    batch_id text PRIMARY KEY,
+    generated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    likes_count integer NOT NULL CHECK (likes_count >= 0)
+);
 
 
 --
