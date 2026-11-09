@@ -194,6 +194,17 @@ CREATE TABLE public.users (
 
 
 --
+--Name: track_likes; Type: TABLE; SCHEMA: public; Owner: -
+--
+
+CREATE TABLE public.track_likes (
+	user_id integer NOT NULL,
+	track_id character varying(50) NOT NULL,
+	liked_when timestamp with time zone NOT NULL
+)
+
+
+--
 -- Name: albums albums_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -247,6 +258,13 @@ ALTER TABLE ONLY public.songs
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (user_id);
+
+
+--
+-- Name: track_likes track_likes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+ALTER TABLE ONLY public.track_likes
+	ADD CONSTRAINT track_likes_pkey PRIMARY KEY (user_id, track_id);
 
 
 --
@@ -337,6 +355,20 @@ CREATE TABLE public.recommendation_items (
     PRIMARY KEY (run_id, track_id),
     UNIQUE (run_id, rank)
 );
+
+
+--
+-- Name: track_likes track_likes_track_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+ALTER TABLE ONLY public.track_likes
+    ADD CONSTRAINT track_likes_track_id_fkey FOREIGN KEY (track_id) REFERENCES public.songs(track_id);
+
+
+--
+-- Name: track_likes track_likes_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+ALTER TABLE ONLY public.track_likes
+    ADD CONSTRAINT track_likes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id);
 
 
 --
