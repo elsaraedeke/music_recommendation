@@ -51,3 +51,15 @@ JOIN history h
 GROUP BY g.genre_id
 ORDER BY times_played DESC
 LIMIT 1;
+
+--return percentages of how often genres are played
+SELECT g.genre_id,
+    COUNT(h.track_id) AS times_played,
+    ROUND(100.0 * COUNT(h.track_id) / SUM(COUNT(h.track_id)) OVER (), 2) AS pct_of_plays
+FROM genres g
+JOIN songs s
+    ON g.genre_id = s.genre_id
+JOIN history h
+    ON s.track_id = h.track_id
+GROUP BY g.genre_id
+ORDER BY pct_of_plays DESC;
