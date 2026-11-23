@@ -59,9 +59,6 @@ another normalized CSV directory. Matching existing catalog keys are preserved;
 different values at an existing key abort the import. Setup does not reset data or
 automatically migrate an incompatible schema.
 
-See [the data pipeline guide](docs/data-pipeline.md) for source verification,
-transformation rules, validation, and troubleshooting.
-
 ## Synthetic listening data
 
 After the catalog is loaded, the generator can also be run separately:
@@ -137,7 +134,7 @@ September–October was evaluated after the scoring rule was frozen. Validation 
 modestly, while the final exact-track hit count did not improve. Synthetic favorites
 are chosen randomly, so the report makes no claim of strong real-user accuracy.
 
-Pipeline and recommendation regression tests require an empty disposable local
+Pipeline, recommendation, and analytics tests require an empty disposable local
 database named `*_test`:
 
 ```bash
@@ -148,3 +145,22 @@ TEST_DATABASE_URL="postgresql://localhost/music_pipeline_test" python -m unittes
 Database tests roll back their tables and data. Pure normalization tests use
 temporary CSV directories. Without `TEST_DATABASE_URL`, database tests are skipped;
 a skipped run is not full verification.
+
+## Analytics starter and index experiment
+
+The [operations guide](docs/analytics-operations.md) defines five operation groups,
+date boundaries, partial plays, and genre attribution. The standalone examples in
+`queries/return_data.sql` are global; dashboard queries filter by listener and dates.
+
+The [starter performance report](evaluation/results/physical_design.md) includes
+before/after timings, query plans, and index storage costs for one listener/window.
+To reproduce it on a separate local database:
+
+```bash
+createdb music_benchmark
+python setup_database.py --database-url "postgresql://localhost/music_benchmark"
+python -m evaluation.benchmark --database-url "postgresql://localhost/music_benchmark" --allow-index-changes
+```
+
+The benchmark rolls back candidate indexes. Broader workload experiments,
+database-side pagination, and deployment decisions remain team follow-up work.
