@@ -1,9 +1,12 @@
 WITH genre_counts AS (
     SELECT track_id, COUNT(*) AS n FROM public.song_genres GROUP BY track_id
 ), preferences AS (
-    -- Split listening time equally across each song's genres.
-    SELECT sg.genre_id, SUM(h.listened_ms::numeric / gc.n) AS listening_time
+    -- One complete listen contributes one unit, independent of song length.
+    -- Split that evidence across tags so multi-genre tracks are not counted twice.
+    SELECT sg.genre_id,
+           SUM(h.listened_ms::numeric / heard.duration_ms / gc.n) AS listening_time
     FROM public.history h
+    JOIN public.songs heard ON heard.track_id = h.track_id
     JOIN public.song_genres sg ON sg.track_id = h.track_id
     JOIN genre_counts gc ON gc.track_id = h.track_id
     WHERE h.user_id = %(user_id)s AND h.played_when < %(cutoff)s::timestamptz

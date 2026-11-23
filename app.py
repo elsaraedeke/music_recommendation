@@ -280,7 +280,7 @@ def recommendations(user_id, cutoff, liked_ids):
         with st.expander("Options"):
             method = st.selectbox("Recommend by", list(METHODS), format_func=METHODS.get)
             k = st.number_input("Number of songs", min_value=1, max_value=50, value=10)
-            st.caption("Genre uses your listening; popularity uses catalog scores. New listeners get popular picks. "
+            st.caption("Genre uses how fully you listen to songs; popularity uses catalog scores. New listeners get popular picks. "
                        "Lists save automatically. Hearts save favorites without changing recommendations.")
     if generate:
         try:
@@ -323,8 +323,10 @@ def recommendations(user_id, cutoff, liked_ids):
             saved = conn.execute("""WITH genre_counts AS (
                     SELECT track_id, COUNT(*) AS n FROM public.song_genres GROUP BY track_id
                 ), preferences AS (
-                    SELECT sg.genre_id, SUM(h.listened_ms::numeric / gc.n) AS listening_time
+                    SELECT sg.genre_id,
+                           SUM(h.listened_ms::numeric / heard.duration_ms / gc.n) AS listening_time
                     FROM public.history h JOIN public.song_genres sg ON sg.track_id = h.track_id
+                    JOIN public.songs heard ON heard.track_id = h.track_id
                     JOIN genre_counts gc ON gc.track_id = h.track_id
                     WHERE h.user_id = %s AND h.played_when < %s AND h.listened_ms > 0
                     GROUP BY sg.genre_id
@@ -362,8 +364,9 @@ def recommendations(user_id, cutoff, liked_ids):
     with st.expander("Details"):
         st.write(f"Run ID: {run_id} · Method: {saved_method} · Generated: {generated_at.astimezone(timezone.utc).isoformat()}")
         st.write(f"History cutoff: {saved_cutoff.astimezone(timezone.utc).isoformat()}")
-        st.caption("Scores are method-specific, not confidence percentages. Genre scores average listening-time "
-                   "shares across a song's genres; popularity breaks ties. Reasons are rebuilt from the current catalog "
+        st.caption("Scores reflect the scoring rules when a list was generated and aren't confidence percentages. "
+                   "Current genre lists weight plays by completion, so song length doesn't dominate preferences; "
+                   "earlier lists keep their original scores. Reasons are rebuilt from the current catalog "
                    "and history before this list's cutoff. Editing those records can change reasons; saved scores stay fixed.")
         st.dataframe(results[["Rank", "Song", "Artist", "Score", "Track ID"]], hide_index=True)
 

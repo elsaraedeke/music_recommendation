@@ -80,3 +80,39 @@ hover details; **Chart data** contains the extra charts' values. Multi-year rang
 have a calendar year selector. Analytics are cached for up to 60 seconds;
 **Refresh** loads the latest data. Likes are independent of listening date filters
 and do not change recommendation scores.
+
+## Recommendation quality
+
+Genre preferences now use each play's completion fraction (`listened_ms / duration_ms`),
+so a fully heard long song does not outweigh a fully heard short song. Each play's
+evidence is split across its genre labels, then candidate genre weights are averaged.
+Unheard-song exclusion, popularity tie-breaking, and the no-history fallback are preserved.
+The original duration-weighted query is retained in `queries/genre_baseline.sql` for comparison.
+
+Existing database tables and method identifiers are compatible. Saved lists retain
+their original ranks/scores; earlier lists may use the previous duration-based rule.
+Like/unlike behavior is unchanged and does not feed recommendation scores.
+
+Run the read-only comparison against an existing populated project database:
+
+```bash
+python -m evaluation.recommendations
+# Or select another database explicitly:
+python -m evaluation.recommendations --database-url "postgresql://localhost/music_recommendation"
+```
+
+The [measured report](evaluation/results/recommendation_quality.md) compares the original
+genre ranker, completion weighting, and popularity. Model selection used July–August;
+September–October was evaluated after the scoring rule was frozen. Validation improved
+modestly, while the final exact-track hit count did not improve. Synthetic favorites
+are chosen randomly, so the report makes no claim of strong real-user accuracy.
+
+Focused regression tests require an empty disposable local database named `*_test`:
+
+```bash
+createdb music_quality_test
+TEST_DATABASE_URL="postgresql://localhost/music_quality_test" python -m unittest discover -s tests -v
+```
+
+These tests roll back their tables and data. Without `TEST_DATABASE_URL`, database
+tests are skipped; a skipped run is not full verification.
