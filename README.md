@@ -1,6 +1,9 @@
 # Music Recommendations and Listening History
 
-## Local setup
+## Build a fresh database
+
+Requirements: Python 3.10+ and PostgreSQL 16+ (a running local server or a separate
+Neon development database). Run commands from the repository root.
 
 Create a Python environment and install dependencies:
 ```bash
@@ -10,31 +13,58 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set `DATABASE_URL` in `.env` using your own Neon credentials.
+Choose the target database. For a running local PostgreSQL server:
 
-Verify the connection:
 ```bash
-python check_connection.py
+createdb music_recommendation
 ```
 
-## Use the database in Python
+Then set this value in `.env`:
 
-```python
-from db import get_connection
-
-with get_connection(read_only=True) as conn:
-    database = conn.execute("SELECT current_database()").fetchone()[0]
-    print(database)
+```text
+DATABASE_URL="postgresql://localhost/music_recommendation"
 ```
 
-## Prepare the catalog CSVs
+For Neon, put the connection URL for an empty development database in `.env`
+instead. Keep credentials out of Git. An exported `DATABASE_URL` takes precedence
+over `.env`; `setup_database.py --database-url URL` selects its target explicitly.
+
+Prepare the catalog, initialize the schema, import it, and generate activity:
 
 ```bash
 python cleaning_scripts/cleaned_spotify.py
 python cleaning_scripts/normalize_spotify.py
+python setup_database.py
+python check_connection.py
 ```
 
+Setup applies the portable schema, imports five catalog CSVs, and seeds synthetic
+users/history/likes in one transaction. A failed import or seed rolls back that
+database setup. The cleaning commands write CSV files before the transaction.
+Rerun `python setup_database.py` to verify that matching rows add no duplicates.
+
+| Fresh-build table | Expected rows |
+|---|---:|
+| `artists` | 10,692 |
+| `albums` | 22,543 |
+| `genres` | 6 |
+| `songs` | 28,352 |
+| `song_genres` | 30,380 |
+| `users` | 100 |
+| `history` | 17,509 |
+| `track_likes` | 729 |
+
+`--skip-seed` creates/loads only the schema and catalog. `--data-dir DIR` selects
+another normalized CSV directory. Matching existing catalog keys are preserved;
+different values at an existing key abort the import. Setup does not reset data or
+automatically migrate an incompatible schema.
+
+See [the data pipeline guide](docs/data-pipeline.md) for source verification,
+transformation rules, validation, and troubleshooting.
+
 ## Synthetic listening data
+
+After the catalog is loaded, the generator can also be run separately:
 
 ```bash
 python seed_data.py
@@ -42,7 +72,7 @@ python seed_data.py
 
 The generator creates 100 synthetic listeners and reproducible listening events using
 seed 42, from May 1 through October 31, 2026 (UTC). It also creates up to eight
-initial likes per listener from repeated plays with at least 80% completion.
+initial likes per listener ranked by qualifying plays with at least 80% completion.
 Users without qualifying listens receive no initial likes.
 
 The `generation_batches` table in `database/schema.sql` records the initial-likes
@@ -107,12 +137,14 @@ September–October was evaluated after the scoring rule was frozen. Validation 
 modestly, while the final exact-track hit count did not improve. Synthetic favorites
 are chosen randomly, so the report makes no claim of strong real-user accuracy.
 
-Focused regression tests require an empty disposable local database named `*_test`:
+Pipeline and recommendation regression tests require an empty disposable local
+database named `*_test`:
 
 ```bash
-createdb music_quality_test
-TEST_DATABASE_URL="postgresql://localhost/music_quality_test" python -m unittest discover -s tests -v
+createdb music_pipeline_test
+TEST_DATABASE_URL="postgresql://localhost/music_pipeline_test" python -m unittest discover -s tests -v
 ```
 
-These tests roll back their tables and data. Without `TEST_DATABASE_URL`, database
-tests are skipped; a skipped run is not full verification.
+Database tests roll back their tables and data. Pure normalization tests use
+temporary CSV directories. Without `TEST_DATABASE_URL`, database tests are skipped;
+a skipped run is not full verification.

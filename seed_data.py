@@ -57,9 +57,17 @@ def generate_likes(events, catalog):
     return likes
 
 
-def seed():
+def seed(conn=None):
+    """Seed atomically, optionally sharing setup's existing transaction."""
+    if conn is None:
+        with get_connection() as connection:
+            return _seed(connection)
+    return _seed(conn)
+
+
+def _seed(conn):
     added_users = added_events = added_likes = 0
-    with get_connection() as conn:
+    with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(341, 100)")
         catalog = conn.execute(
             """SELECT s.track_id, s.duration_ms, array_agg(sg.genre_id ORDER BY sg.genre_id)
@@ -103,8 +111,10 @@ def seed():
                 "INSERT INTO public.generation_batches (batch_id, likes_count) VALUES (%s, %s)",
                 (LIKES_BATCH_ID, added_likes),
             )
-    print(f"Added {added_users} users, {added_events} listening events, and {added_likes} initial likes.")
+    return {"users": added_users, "history": added_events, "track_likes": added_likes}
 
 
 if __name__ == "__main__":
-    seed()
+    counts = seed()
+    print(f"Added {counts['users']} users, {counts['history']} listening events, "
+          f"and {counts['track_likes']} initial likes.")
