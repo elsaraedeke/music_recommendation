@@ -109,6 +109,128 @@ class PipelineDatabaseTests(unittest.TestCase):
         initialize_schema(self.conn)
         return import_catalog(self.conn, self.data_dir)
 
+    def load_listener(self):
+        self.load_catalog()
+        self.conn.execute("INSERT INTO public.users VALUES (1, 'listener')")
+
+    def listen(self, track="track_a", listened=30000, user=1):
+        return self.conn.execute("""INSERT INTO public.history
+            (user_id,track_id,played_when,listened_ms)
+            VALUES (%s,%s,'2026-08-01T12:00:00Z',%s) RETURNING history_id""",
+            (user, track, listened)).fetchone()[0]
+
+    def test_zero_partial_full_and_repeated_listens_are_valid(self):
+        self.load_listener()
+        ids = [self.listen(listened=duration) for duration in (0, 30000, 60000, 60000)]
+        self.assertEqual(len(set(ids)), 4)
+        self.conn.execute("UPDATE public.history SET listened_ms=60000 WHERE history_id=%s", (ids[1],))
+        self.assertEqual(self.conn.execute("SELECT listened_ms FROM public.history ORDER BY history_id").fetchall(),
+                         [(0,), (60000,), (60000,), (60000,)])
+
+    def test_invalid_listening_insert_leaves_existing_events_unchanged(self):
+        self.load_listener()
+        existing = self.listen()
+        for duration in (60001, -1):
+            with self.subTest(duration=duration), self.assertRaises(psycopg.errors.CheckViolation) as error:
+                with self.conn.transaction():
+                    self.listen(listened=duration)
+            self.assertEqual(error.exception.sqlstate, "23514")
+        self.assertEqual(self.conn.execute("SELECT history_id,listened_ms FROM public.history").fetchall(),
+                         [(existing, 30000)])
+
+    def test_invalid_listening_updates_preserve_original_event(self):
+        self.load_listener()
+        event = self.listen("track_b", 90000)
+        statements = ["UPDATE public.history SET listened_ms=120001 WHERE history_id=%s",
+                      "UPDATE public.history SET track_id='track_a' WHERE history_id=%s"]
+        for statement in statements:
+            with self.subTest(statement=statement), self.assertRaises(psycopg.errors.CheckViolation) as error:
+                with self.conn.transaction():
+                    self.conn.execute(statement, (event,))
+            self.assertEqual(error.exception.sqlstate, "23514")
+            self.assertEqual(self.conn.execute("SELECT track_id,listened_ms FROM public.history WHERE history_id=%s", (event,)).fetchone(),
+                             ("track_b", 90000))
+        self.conn.execute("UPDATE public.history SET track_id='track_c',listened_ms=240000 WHERE history_id=%s", (event,))
+        self.assertEqual(self.conn.execute("SELECT track_id,listened_ms FROM public.history WHERE history_id=%s", (event,)).fetchone(),
+                         ("track_c", 240000))
+
+    def test_song_duration_edits_preserve_existing_listens(self):
+        self.load_listener()
+        self.listen("track_b", 90000)
+        self.listen("track_b", 30000)
+        with self.assertRaises(psycopg.errors.CheckViolation) as error:
+            with self.conn.transaction():
+                self.conn.execute("UPDATE public.songs SET duration_ms=89999 WHERE track_id='track_b'")
+        self.assertEqual(error.exception.sqlstate, "23514")
+        self.assertEqual(self.conn.execute("SELECT duration_ms FROM public.songs WHERE track_id='track_b'").fetchone()[0], 120000)
+        for duration in (180000, 90000, 90000):
+            self.conn.execute("UPDATE public.songs SET duration_ms=%s WHERE track_id='track_b'", (duration,))
+        self.conn.execute("UPDATE public.songs SET duration_ms=1 WHERE track_id='track_d'")
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            with self.conn.transaction():
+                self.conn.execute("UPDATE public.songs SET duration_ms=0 WHERE track_id='track_d'")
+        self.assertEqual(self.conn.execute("SELECT duration_ms FROM public.songs WHERE track_id='track_d'").fetchone()[0], 1)
+        self.assertEqual(self.conn.execute("SELECT listened_ms FROM public.history ORDER BY history_id").fetchall(), [(90000,), (30000,)])
+
+    def test_duplicate_primary_and_unique_keys_are_rejected(self):
+        self.load_listener()
+        self.conn.execute("INSERT INTO public.track_likes VALUES (1,'track_a','2026-08-01T12:00:00Z')")
+        run_id = self.conn.execute("""INSERT INTO public.recommendation_runs
+            (user_id,method,history_cutoff,requested_k)
+            VALUES (1,'popularity_v1','2026-09-01T00:00:00Z',2) RETURNING run_id""").fetchone()[0]
+        self.conn.execute("INSERT INTO public.recommendation_items VALUES (%s,'track_a',1,80)", (run_id,))
+        duplicates = [
+            ("INSERT INTO public.users VALUES (1,'duplicate')", (), "users_pkey"),
+            ("INSERT INTO public.track_likes VALUES (1,'track_a',CURRENT_TIMESTAMP)", (), "track_likes_pkey"),
+            ("INSERT INTO public.recommendation_items VALUES (%s,'track_b',1,60)", (run_id,), "recommendation_items_run_id_rank_key"),
+        ]
+        for statement, parameters, constraint in duplicates:
+            with self.subTest(constraint=constraint), self.assertRaises(psycopg.errors.UniqueViolation) as error:
+                with self.conn.transaction():
+                    self.conn.execute(statement, parameters)
+            self.assertEqual(error.exception.diag.constraint_name, constraint)
+        self.assertEqual(self.conn.execute("SELECT username FROM public.users WHERE user_id=1").fetchone()[0], "listener")
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.track_likes").fetchone()[0], 1)
+        self.assertEqual(self.conn.execute("SELECT track_id,rank FROM public.recommendation_items").fetchall(), [("track_a", 1)])
+
+    def check_fixed_snapshot_duration_edit(self, isolation):
+        self.conn.execute(f"SET TRANSACTION ISOLATION LEVEL {isolation}")
+        self.load_listener()
+        # Even a seemingly safe reduction must not rely on a fixed snapshot.
+        with self.assertRaisesRegex(psycopg.errors.FeatureNotSupported, "READ COMMITTED"):
+            with self.conn.transaction():
+                self.conn.execute("UPDATE public.songs SET duration_ms=30000 WHERE track_id='track_a'")
+        self.conn.execute("UPDATE public.songs SET duration_ms=60000 WHERE track_id='track_a'")
+        self.conn.execute("UPDATE public.songs SET duration_ms=90000 WHERE track_id='track_a'")
+        self.listen(listened=90000)
+
+    def test_repeatable_read_rejects_duration_decrease(self):
+        self.check_fixed_snapshot_duration_edit("REPEATABLE READ")
+
+    def test_serializable_rejects_duration_decrease(self):
+        self.check_fixed_snapshot_duration_edit("SERIALIZABLE")
+
+    def test_invalid_listening_references_are_rejected(self):
+        self.load_listener()
+        for track, user in [("missing_track", 1), ("track_a", 999)]:
+            with self.subTest(track=track, user=user), self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                with self.conn.transaction():
+                    self.listen(track, user=user)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.history").fetchone()[0], 0)
+
+    def test_listening_failure_rolls_back_earlier_batch_writes(self):
+        self.load_listener()
+        existing = self.listen()
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            with self.conn.transaction():
+                self.conn.execute("INSERT INTO public.users VALUES (2,'batch listener')")
+                self.listen("track_b", 120000, user=2)
+                self.conn.execute("UPDATE public.songs SET duration_ms=40000 WHERE track_id='track_a'")
+                self.listen(listened=50000, user=2)
+        self.assertEqual(self.conn.execute("SELECT history_id,listened_ms FROM public.history").fetchall(), [(existing, 30000)])
+        self.assertIsNone(self.conn.execute("SELECT 1 FROM public.users WHERE user_id=2").fetchone())
+        self.assertEqual(self.conn.execute("SELECT duration_ms FROM public.songs WHERE track_id='track_a'").fetchone()[0], 60000)
+
     def test_catalog_rerun_preserves_rows_without_duplicates(self):
         from setup_database import import_catalog
         first = self.load_catalog()

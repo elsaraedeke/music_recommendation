@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS public.spotify_raw (
 );
 
 CREATE OR REPLACE FUNCTION public.check_listen_duration() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql VOLATILE AS $$
 DECLARE
     song_duration integer;
 BEGIN
@@ -99,3 +99,25 @@ $$;
 CREATE OR REPLACE TRIGGER check_listen_duration
 BEFORE INSERT OR UPDATE OF track_id, listened_ms ON public.history
 FOR EACH ROW EXECUTE FUNCTION public.check_listen_duration();
+
+CREATE OR REPLACE FUNCTION public.check_song_duration() RETURNS trigger
+LANGUAGE plpgsql VOLATILE AS $$
+BEGIN
+    -- A fixed transaction snapshot could miss a recently committed listen.
+    IF current_setting('transaction_isolation') NOT IN ('read committed', 'read uncommitted') THEN
+        RAISE EXCEPTION 'Song-duration decreases require READ COMMITTED isolation'
+            USING ERRCODE = '0A000', HINT = 'Retry the duration update in a READ COMMITTED transaction.';
+    END IF;
+    -- UPDATE already locks this song, conflicting with history's FOR SHARE.
+    IF EXISTS (SELECT 1 FROM public.history
+               WHERE track_id = OLD.track_id AND listened_ms > NEW.duration_ms) THEN
+        RAISE EXCEPTION 'Song duration cannot be shorter than an existing listen'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE OR REPLACE TRIGGER check_song_duration
+BEFORE UPDATE OF duration_ms ON public.songs
+FOR EACH ROW WHEN (NEW.duration_ms < OLD.duration_ms)
+EXECUTE FUNCTION public.check_song_duration();

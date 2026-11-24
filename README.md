@@ -161,6 +161,12 @@ TEST_DATABASE_URL="postgresql://localhost/music_pipeline_test" python -m unittes
 ```
 
 Database tests roll back their tables and data, including failed recommendation saves.
+They also check valid/oversized listens, duplicate keys, invalid references, and
+song-duration changes. A song cannot be shortened below any existing listen.
+Duration decreases require PostgreSQL's default `READ COMMITTED` isolation
+(`READ UNCOMMITTED` is also accepted); increases remain allowed at every level.
+This avoids checking history against an old transaction snapshot, as explained in
+the [PostgreSQL consistency guidance](https://www.postgresql.org/docs/16/applevel-consistency.html).
 Pure normalization tests use temporary CSV directories; evaluation tests use
 hand-calculated metrics and cutoff-boundary fixtures. Without `TEST_DATABASE_URL`, database tests are skipped;
 a skipped run is not full verification.
