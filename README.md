@@ -95,6 +95,8 @@ Choose a listener and use three sections:
 - **Discover:** click **Find songs** for ten recommendations based on listening
   history. **Options** lets you change the method or number of songs.
   New listeners receive popular picks. Songs heard before generation are excluded.
+  Popular unheard songs fill remaining spots when genre matches run out; lists
+  are shorter only when fewer unheard songs remain than requested.
   Results save automatically; older results are under **Saved lists**, and scores
   and cutoffs are under **Details**.
 - **Likes:** search your saved songs. Outlined hearts save songs; red hearts
@@ -114,11 +116,24 @@ Genre preferences now use each play's completion fraction (`listened_ms / durati
 so a fully heard long song does not outweigh a fully heard short song. Each play's
 evidence is split across its genre labels, then candidate genre weights are averaged.
 Unheard-song exclusion, popularity tie-breaking, and the no-history fallback are preserved.
+Positive genre matches rank first; zero-score candidates fill remaining spots by
+popularity, with track IDs breaking ties. Every song appears at most once.
 The original duration-weighted query is retained in `queries/genre_baseline.sql` for comparison.
 
-Existing database tables and method identifiers are compatible. Saved lists retain
-their original ranks/scores; earlier lists may use the previous duration-based rule.
-Like/unlike behavior is unchanged and does not feed recommendation scores.
+New genre lists use `genre_v2`; `popularity_v1` is unchanged. Existing `genre_v1`
+lists retain their original ranks/scores and are labeled as earlier versions;
+those lists may use either of the previous scoring rules.
+`queries/recommend.py` generates and saves each run and its items in one transaction.
+A failure leaves no partial run/items. Like/unlike does not feed recommendation scores.
+
+**Existing database update:** open
+[`database/migrations/001_genre_v2.sql`](database/migrations/001_genre_v2.sql)
+in pgAdmin's Query Tool for the intended database and execute the whole file as
+the table owner. For the shared project role, run `SET ROLE project_developers;`
+first and `RESET ROLE;` afterward. This only expands the allowed method labels;
+it preserves all saved lists and can be rerun. Fresh databases built with
+`setup_database.py` already permit `genre_v2`. Pulling Git changes alone does
+not update an existing database constraint.
 
 Run the read-only comparison against an existing populated project database:
 
@@ -129,10 +144,13 @@ python -m evaluation.recommendations --database-url "postgresql://localhost/musi
 ```
 
 The [measured report](evaluation/results/recommendation_quality.md) compares the original
-genre ranker, completion weighting, and popularity. Model selection used July–August;
-September–October was evaluated after the scoring rule was frozen. Validation improved
-modestly, while the final exact-track hit count did not improve. Synthetic favorites
-are chosen randomly, so the report makes no claim of strong real-user accuracy.
+genre ranker, completion weighting with popularity top-up, and popularity. It reports
+Precision@K, Recall@K, NDCG@K, catalog coverage, full-list rate, and mean list length.
+Quality metrics exclude listeners without relevant future targets; coverage and list
+completeness include every evaluated listener. July–August and September–October
+are fixed validation/test windows. Since the test period has already been inspected,
+this rerun is a regression comparison, not a newly untouched test set. Synthetic
+favorites are chosen randomly, so the report makes no claim of strong real-user accuracy.
 
 Pipeline, recommendation, and analytics tests require an empty disposable local
 database named `*_test`:
@@ -142,8 +160,9 @@ createdb music_pipeline_test
 TEST_DATABASE_URL="postgresql://localhost/music_pipeline_test" python -m unittest discover -s tests -v
 ```
 
-Database tests roll back their tables and data. Pure normalization tests use
-temporary CSV directories. Without `TEST_DATABASE_URL`, database tests are skipped;
+Database tests roll back their tables and data, including failed recommendation saves.
+Pure normalization tests use temporary CSV directories; evaluation tests use
+hand-calculated metrics and cutoff-boundary fixtures. Without `TEST_DATABASE_URL`, database tests are skipped;
 a skipped run is not full verification.
 
 ## Analytics starter and index experiment

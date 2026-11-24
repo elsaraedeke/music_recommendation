@@ -1,6 +1,6 @@
 {
-  "model": "completion_weighted_genre_average",
-  "server_version": 160014,
+  "model": "completion_weighted_genre_average_with_popularity_top_up",
+  "server_version": 180006,
   "validation": {
     "cutoff": "2026-07-01T00:00:00+00:00",
     "end_exclusive": "2026-09-01T00:00:00+00:00",
@@ -10,85 +10,130 @@
     "query_sha256": {
       "popularity": "e169ab8860901a9a1e5ba4fb3beebd82a1933305e6505391e1889c6d435fec67",
       "genre_before": "e107edbb1a99c09c79d0a19b6ddfddbd1e93f0bedc5c37750c7b702625ac8344",
-      "genre_after": "dcccf6ece585f2771b950cdb6c5146f80524bea1580be585d2ada348c5fa4338"
+      "genre_after": "af8748fc93b1e462e8152cfc5011a4f0fd1ac66f0bfd5b4733f686be89f2547b"
     },
     "summary": {
       "all": {
         "popularity": {
           "users": 100,
           "eligible_users": 92,
+          "excluded_users": 8,
           "hits": 2,
           "precision": 0.002173913043478261,
           "recall": 0.0005156451423883745,
-          "ndcg": 0.002361529487524238
+          "ndcg": 0.002361529487524238,
+          "distinct_recommended_tracks": 11,
+          "catalog_coverage": 0.00038797968397291194,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_before": {
           "users": 100,
           "eligible_users": 92,
+          "excluded_users": 8,
           "hits": 6,
           "precision": 0.006521739130434783,
           "recall": 0.0012946319247661663,
-          "ndcg": 0.007125517466605
+          "ndcg": 0.007125517466605,
+          "distinct_recommended_tracks": 71,
+          "catalog_coverage": 0.002504232505643341,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_after": {
           "users": 100,
           "eligible_users": 92,
+          "excluded_users": 8,
           "hits": 7,
           "precision": 0.007608695652173913,
           "recall": 0.0015534310966088165,
-          "ndcg": 0.008050986136622619
+          "ndcg": 0.008050986136622619,
+          "distinct_recommended_tracks": 71,
+          "catalog_coverage": 0.002504232505643341,
+          "full_list_rate": 1,
+          "mean_returned": 10
         }
       },
       "warm": {
         "popularity": {
           "users": 93,
           "eligible_users": 92,
+          "excluded_users": 1,
           "hits": 2,
           "precision": 0.002173913043478261,
           "recall": 0.0005156451423883745,
-          "ndcg": 0.002361529487524238
+          "ndcg": 0.002361529487524238,
+          "distinct_recommended_tracks": 11,
+          "catalog_coverage": 0.00038797968397291194,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_before": {
           "users": 93,
           "eligible_users": 92,
+          "excluded_users": 1,
           "hits": 6,
           "precision": 0.006521739130434783,
           "recall": 0.0012946319247661663,
-          "ndcg": 0.007125517466605
+          "ndcg": 0.007125517466605,
+          "distinct_recommended_tracks": 61,
+          "catalog_coverage": 0.002151523702031603,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_after": {
           "users": 93,
           "eligible_users": 92,
+          "excluded_users": 1,
           "hits": 7,
           "precision": 0.007608695652173913,
           "recall": 0.0015534310966088165,
-          "ndcg": 0.008050986136622619
+          "ndcg": 0.008050986136622619,
+          "distinct_recommended_tracks": 61,
+          "catalog_coverage": 0.002151523702031603,
+          "full_list_rate": 1,
+          "mean_returned": 10
         }
       },
       "cold_start": {
         "popularity": {
           "users": 7,
           "eligible_users": 0,
+          "excluded_users": 7,
           "hits": 0,
           "precision": null,
           "recall": null,
-          "ndcg": null
+          "ndcg": null,
+          "distinct_recommended_tracks": 10,
+          "catalog_coverage": 0.00035270880361173816,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_before": {
           "users": 7,
           "eligible_users": 0,
+          "excluded_users": 7,
           "hits": 0,
           "precision": null,
           "recall": null,
-          "ndcg": null
+          "ndcg": null,
+          "distinct_recommended_tracks": 10,
+          "catalog_coverage": 0.00035270880361173816,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_after": {
           "users": 7,
           "eligible_users": 0,
+          "excluded_users": 7,
           "hits": 0,
           "precision": null,
           "recall": null,
-          "ndcg": null
+          "ndcg": null,
+          "distinct_recommended_tracks": 10,
+          "catalog_coverage": 0.00035270880361173816,
+          "full_list_rate": 1,
+          "mean_returned": 10
         }
       }
     },
@@ -9238,85 +9283,130 @@
     "query_sha256": {
       "popularity": "e169ab8860901a9a1e5ba4fb3beebd82a1933305e6505391e1889c6d435fec67",
       "genre_before": "e107edbb1a99c09c79d0a19b6ddfddbd1e93f0bedc5c37750c7b702625ac8344",
-      "genre_after": "dcccf6ece585f2771b950cdb6c5146f80524bea1580be585d2ada348c5fa4338"
+      "genre_after": "af8748fc93b1e462e8152cfc5011a4f0fd1ac66f0bfd5b4733f686be89f2547b"
     },
     "summary": {
       "all": {
         "popularity": {
           "users": 100,
           "eligible_users": 93,
+          "excluded_users": 7,
           "hits": 2,
           "precision": 0.002150537634408602,
           "recall": 0.0007650548114611498,
-          "ndcg": 0.002202518790522482
+          "ndcg": 0.002202518790522482,
+          "distinct_recommended_tracks": 11,
+          "catalog_coverage": 0.00038797968397291194,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_before": {
           "users": 100,
           "eligible_users": 93,
+          "excluded_users": 7,
           "hits": 2,
           "precision": 0.002150537634408602,
           "recall": 0.0006451612903225806,
-          "ndcg": 0.002202518790522482
+          "ndcg": 0.002202518790522482,
+          "distinct_recommended_tracks": 76,
+          "catalog_coverage": 0.00268058690744921,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_after": {
           "users": 100,
           "eligible_users": 93,
+          "excluded_users": 7,
           "hits": 2,
           "precision": 0.002150537634408602,
           "recall": 0.0006451612903225806,
-          "ndcg": 0.002202518790522482
+          "ndcg": 0.002202518790522482,
+          "distinct_recommended_tracks": 76,
+          "catalog_coverage": 0.00268058690744921,
+          "full_list_rate": 1,
+          "mean_returned": 10
         }
       },
       "warm": {
         "popularity": {
           "users": 94,
           "eligible_users": 92,
+          "excluded_users": 2,
           "hits": 2,
           "precision": 0.002173913043478261,
           "recall": 0.0007733706246292058,
-          "ndcg": 0.0022264592121585963
+          "ndcg": 0.0022264592121585963,
+          "distinct_recommended_tracks": 11,
+          "catalog_coverage": 0.00038797968397291194,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_before": {
           "users": 94,
           "eligible_users": 92,
+          "excluded_users": 2,
           "hits": 2,
           "precision": 0.002173913043478261,
           "recall": 0.0006521739130434783,
-          "ndcg": 0.0022264592121585963
+          "ndcg": 0.0022264592121585963,
+          "distinct_recommended_tracks": 66,
+          "catalog_coverage": 0.002327878103837472,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_after": {
           "users": 94,
           "eligible_users": 92,
+          "excluded_users": 2,
           "hits": 2,
           "precision": 0.002173913043478261,
           "recall": 0.0006521739130434783,
-          "ndcg": 0.0022264592121585963
+          "ndcg": 0.0022264592121585963,
+          "distinct_recommended_tracks": 66,
+          "catalog_coverage": 0.002327878103837472,
+          "full_list_rate": 1,
+          "mean_returned": 10
         }
       },
       "cold_start": {
         "popularity": {
           "users": 6,
           "eligible_users": 1,
+          "excluded_users": 5,
           "hits": 0,
           "precision": 0.0,
           "recall": 0.0,
-          "ndcg": 0.0
+          "ndcg": 0.0,
+          "distinct_recommended_tracks": 10,
+          "catalog_coverage": 0.00035270880361173816,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_before": {
           "users": 6,
           "eligible_users": 1,
+          "excluded_users": 5,
           "hits": 0,
           "precision": 0.0,
           "recall": 0.0,
-          "ndcg": 0.0
+          "ndcg": 0.0,
+          "distinct_recommended_tracks": 10,
+          "catalog_coverage": 0.00035270880361173816,
+          "full_list_rate": 1,
+          "mean_returned": 10
         },
         "genre_after": {
           "users": 6,
           "eligible_users": 1,
+          "excluded_users": 5,
           "hits": 0,
           "precision": 0.0,
           "recall": 0.0,
-          "ndcg": 0.0
+          "ndcg": 0.0,
+          "distinct_recommended_tracks": 10,
+          "catalog_coverage": 0.00035270880361173816,
+          "full_list_rate": 1,
+          "mean_returned": 10
         }
       }
     },

@@ -34,6 +34,6 @@ WITH genre_counts AS (
 SELECT s.track_id, s.track_name, a.artist_name, s.score
 FROM scored s
 JOIN public.artists a ON a.artist_id = s.artist_id
-WHERE s.score > 0 OR NOT EXISTS (SELECT 1 FROM weights)
+-- Zero-score songs fill any remaining slots by popularity after genre matches.
 ORDER BY s.score DESC, s.track_popularity DESC, s.track_id
 LIMIT %(k)s;

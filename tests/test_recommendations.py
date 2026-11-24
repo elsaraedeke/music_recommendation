@@ -13,35 +13,16 @@ from pathlib import Path
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
+from queries.recommend import METHOD_VERSIONS, save_recommendations
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CUTOFF = datetime(2026, 9, 1, tzinfo=timezone.utc)
-SCHEMA = """
-CREATE TABLE public.artists (artist_id integer PRIMARY KEY, artist_name text NOT NULL);
-CREATE TABLE public.genres (genre_id integer PRIMARY KEY, genre_name text NOT NULL);
-CREATE TABLE public.users (user_id integer PRIMARY KEY, username text NOT NULL);
-CREATE TABLE public.songs (
-    track_id varchar(300) PRIMARY KEY, track_name text NOT NULL,
-    artist_id integer NOT NULL REFERENCES public.artists, track_popularity integer NOT NULL,
-    album_id text NOT NULL, genre_id integer NOT NULL REFERENCES public.genres,
-    subgenre text NOT NULL, duration_ms integer NOT NULL CHECK (duration_ms > 0)
-);
-CREATE TABLE public.song_genres (
-    track_id varchar(300) REFERENCES public.songs, genre_id integer REFERENCES public.genres,
-    PRIMARY KEY (track_id, genre_id)
-);
-CREATE TABLE public.history (
-    history_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id integer NOT NULL REFERENCES public.users, track_id varchar(300) NOT NULL REFERENCES public.songs,
-    played_when timestamptz NOT NULL, listened_ms integer NOT NULL CHECK (listened_ms >= 0)
-);
-CREATE TABLE public.track_likes (
-    user_id integer REFERENCES public.users, track_id varchar(300) REFERENCES public.songs,
-    liked_when timestamptz NOT NULL, PRIMARY KEY (user_id, track_id)
-);
+FIXTURE = """
 INSERT INTO public.artists VALUES (1, 'Fixture artist');
 INSERT INTO public.genres VALUES (1, 'pop'), (2, 'rock'), (3, 'jazz');
 INSERT INTO public.users VALUES (1, 'active listener'), (2, 'new listener');
+INSERT INTO public.albums VALUES ('fixture_album', 'Fixture album', '2020', 1);
 """
 
 
@@ -63,7 +44,8 @@ class RecommendationTests(unittest.TestCase):
 
     def setUp(self):
         self.conn = psycopg.connect(self.database_url, connect_timeout=10)
-        self.conn.execute(SCHEMA, prepare=False)
+        self.conn.execute((ROOT / "database/schema.sql").read_text(), prepare=False)
+        self.conn.execute(FIXTURE, prepare=False)
 
     def tearDown(self):
         self.conn.rollback()
@@ -94,7 +76,7 @@ class RecommendationTests(unittest.TestCase):
         for track in ("heard", "future", "unheard", "another"):
             self.song(track)
         self.listen("heard")
-        self.listen("future", played="2026-09-02T00:00:00Z")
+        self.listen("future", played="2026-09-01T00:00:00Z")
         rows = self.recommend(k=3)
         tracks = [row[0] for row in rows]
         self.assertNotIn("heard", tracks)
@@ -159,6 +141,80 @@ class RecommendationTests(unittest.TestCase):
         scores = {row[0]: row[3] for row in self.recommend()}
         self.assertEqual(scores["candidate_one"], scores["candidate_two"])
         self.assertAlmostEqual(float(scores["candidate_three"]), 2 * float(scores["candidate_one"]))
+
+    def test_popularity_fills_short_genre_lists_after_all_matches(self):
+        self.song("heard", popularity=100)
+        self.listen("heard")
+        self.song("match", popularity=0)
+        self.song("fallback_b", genres=(2,), popularity=99)
+        self.song("fallback_a", genres=(2, 3), popularity=99)
+        self.song("zero_popularity", genres=(3,), popularity=0)
+        rows = self.recommend(k=4)
+        self.assertEqual([row[0] for row in rows],
+                         ["match", "fallback_a", "fallback_b", "zero_popularity"])
+        self.assertEqual([float(row[3]) for row in rows], [1, 0, 0, 0])
+        self.assertEqual(self.recommend(k=2), rows[:2])
+
+    def test_exhausted_catalog_returns_only_available_unheard_songs(self):
+        self.assertEqual(self.recommend(), [])
+        self.song("only", popularity=0)
+        self.assertEqual(self.recommend(user=2), self.recommend("popularity", user=2))
+        self.assertEqual([row[0] for row in self.recommend()], ["only"])
+        self.listen("only")
+        self.assertEqual(self.recommend(), [])
+
+    def test_saved_runs_keep_order_scores_cutoff_and_version(self):
+        self.song("first", popularity=90)
+        self.song("second", popularity=20)
+        for method in METHOD_VERSIONS:
+            with self.subTest(method=method):
+                expected = self.recommend(method, k=2)
+                run_id = save_recommendations(self.conn, 1, method, CUTOFF, 2)
+                self.assertEqual(self.conn.execute("""SELECT user_id,method,history_cutoff,requested_k
+                    FROM public.recommendation_runs WHERE run_id=%s""", (run_id,)).fetchone(),
+                    (1, METHOD_VERSIONS[method], CUTOFF, 2))
+                self.assertEqual(self.conn.execute("""SELECT track_id,rank,score
+                    FROM public.recommendation_items WHERE run_id=%s ORDER BY rank""", (run_id,)).fetchall(),
+                    [(row[0], rank, row[3]) for rank, row in enumerate(expected, 1)])
+
+    def test_item_failure_rolls_back_whole_run_and_preserves_earlier_run(self):
+        self.song("first", popularity=90)
+        self.song("second", popularity=20)
+        previous = save_recommendations(self.conn, 2, "popularity", CUTOFF, 1)
+        self.conn.execute("""CREATE FUNCTION public.fail_second_item() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN
+                IF NEW.rank = 2 THEN
+                    IF NOT EXISTS (SELECT 1 FROM public.recommendation_items
+                                   WHERE run_id=NEW.run_id AND rank=1) THEN
+                        RAISE EXCEPTION 'First item was not inserted';
+                    END IF;
+                    RAISE EXCEPTION 'Fixture item failure' USING ERRCODE='23514';
+                END IF;
+                RETURN NEW;
+            END $$;
+            CREATE TRIGGER fail_second_item BEFORE INSERT ON public.recommendation_items
+            FOR EACH ROW EXECUTE FUNCTION public.fail_second_item();""", prepare=False)
+        with self.assertRaisesRegex(psycopg.errors.CheckViolation, "Fixture item failure"):
+            save_recommendations(self.conn, 1, "genre", CUTOFF, 2)
+        self.assertEqual(self.conn.execute("SELECT run_id FROM public.recommendation_runs").fetchall(), [(previous,)])
+        self.assertEqual(self.conn.execute("SELECT run_id,track_id,rank FROM public.recommendation_items").fetchall(),
+                         [(previous, "first", 1)])
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.songs").fetchone()[0], 2)
+
+    def test_empty_run_is_valid_and_unknown_user_creates_no_run(self):
+        run_id = save_recommendations(self.conn, 1, "genre", CUTOFF, 10)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.recommendation_items").fetchone()[0], 0)
+        with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            save_recommendations(self.conn, 999, "genre", CUTOFF, 10)
+        self.assertEqual(self.conn.execute("SELECT run_id FROM public.recommendation_runs").fetchall(), [(run_id,)])
+
+    def test_invalid_options_do_not_create_saved_runs(self):
+        options = [("invalid", CUTOFF, 10), ("genre", CUTOFF.replace(tzinfo=None), 10)]
+        options += [("genre", CUTOFF, k) for k in (0, -1, 51, 1.5, True)]
+        for method, cutoff, k in options:
+            with self.subTest(method=method, cutoff=cutoff, k=k), self.assertRaises(ValueError):
+                save_recommendations(self.conn, 1, method, cutoff, k)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM public.recommendation_runs").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

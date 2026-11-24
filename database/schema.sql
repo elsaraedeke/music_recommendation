@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS public.generation_batches (
 CREATE TABLE IF NOT EXISTS public.recommendation_runs (
     run_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id integer NOT NULL REFERENCES public.users(user_id),
-    method text NOT NULL CHECK (method IN ('popularity_v1', 'genre_v1')),
+    method text NOT NULL CHECK (method IN ('popularity_v1', 'genre_v1', 'genre_v2')),
     generated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     history_cutoff timestamptz NOT NULL,
     requested_k integer NOT NULL CHECK (requested_k > 0)

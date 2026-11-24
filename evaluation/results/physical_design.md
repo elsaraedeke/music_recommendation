@@ -1,6 +1,6 @@
 # Starter history-index experiment
 
-Preserved November 22, 2026 measurements at commit `63da6c2`; query fingerprints match the current code.
+Preserved November 22, 2026 measurements at commit `63da6c2`. These precede genre v2's popularity top-up; rerun the benchmark before using these timings for the current recommendation query.
 
 PostgreSQL 16.14; 17,509 listening events; one active listener (341173). Each query used 3 warmups and 15 timed executions per configuration. Times include execute and fetchall on a local warm-cache connection, excluding Streamlit caching.
 

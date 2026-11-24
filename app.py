@@ -1,7 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 from html import escape
 import logging
-from pathlib import Path
 import re
 
 import altair as alt
@@ -10,8 +9,11 @@ import psycopg
 import streamlit as st
 
 from db import get_connection
+from queries.recommend import METHOD_VERSIONS, save_recommendations
 
 METHODS = {"genre": "Genre preferences", "popularity": "Popularity"}
+SAVED_METHODS = {version: METHODS[method] for method, version in METHOD_VERSIONS.items()}
+SAVED_METHODS["genre_v1"] = "Genre preferences (earlier version)"
 LISTENS = """WITH listens AS (
     SELECT * FROM public.history WHERE user_id = %(user_id)s
     AND played_when >= %(start)s AND played_when < %(end)s
@@ -281,37 +283,36 @@ def recommendations(user_id, cutoff, liked_ids):
             method = st.selectbox("Recommend by", list(METHODS), format_func=METHODS.get)
             k = st.number_input("Number of songs", min_value=1, max_value=50, value=10)
             st.caption("Genre uses how fully you listen to songs; popularity uses catalog scores. New listeners get popular picks. "
-                       "Lists save automatically. Hearts save favorites without changing recommendations.")
+                       "Popular songs fill any remaining spots. Lists save automatically. Hearts save favorites without changing recommendations.")
     if generate:
         try:
-            query = (Path(__file__).parent / "queries" / f"{method}_candidates.sql").read_text()
             with st.spinner("Finding your next songs…"):
                 with get_connection() as conn:
-                    rows = conn.execute(query, {"user_id": user_id, "cutoff": cutoff, "k": k}).fetchall()
-                    run_id = conn.execute("""INSERT INTO public.recommendation_runs
-                        (user_id, method, history_cutoff, requested_k)
-                        VALUES (%s, %s, %s, %s) RETURNING run_id""",
-                        (user_id, f"{method}_v1", cutoff, k)).fetchone()[0]
-                    with conn.cursor() as cur:
-                        cur.executemany("INSERT INTO public.recommendation_items (run_id, track_id, rank, score) VALUES (%s, %s, %s, %s)",
-                            [(run_id, row[0], rank, row[3]) for rank, row in enumerate(rows, 1)])
+                    run_id = save_recommendations(conn, user_id, method, cutoff, k)
+                    count = conn.execute("SELECT COUNT(*) FROM public.recommendation_items WHERE run_id = %s", (run_id,)).fetchone()[0]
             st.session_state[f"saved_run_{user_id}"] = run_id
             st.session_state[choice_key] = run_id
-            st.success(f"{len(rows)} songs found and saved.")
+            st.success(f"{count} songs found and saved.")
+        except psycopg.errors.CheckViolation as error:
+            logger.exception("Could not save recommendations")
+            if error.diag.constraint_name == "recommendation_runs_method_check":
+                st.error("The database needs the recommendation version update. Ask the database owner to apply it, then try again.")
+            else:
+                st.error("Couldn't save this list. Please try again.")
         except (psycopg.Error, ValueError, OSError):
             logger.exception("Could not generate recommendations")
             st.error("Couldn't confirm the save. Check Saved lists before trying again.")
 
     try:
         with get_connection(read_only=True) as conn:
-            runs = conn.execute("""SELECT run_id, method, generated_at, history_cutoff FROM public.recommendation_runs
+            runs = conn.execute("""SELECT run_id, method, generated_at, history_cutoff, requested_k FROM public.recommendation_runs
                 WHERE user_id = %s ORDER BY generated_at DESC, run_id DESC""", (user_id,)).fetchall()
             if not runs:
                 st.info("Select Find songs to get your first picks.")
                 return
             runs = {row[0]: row[1:] for row in runs}
             labels = {rid: f"List {len(runs) - i} · {row[1].astimezone(timezone.utc):%b %d, %Y} · "
-                      f"{METHODS.get(row[0].removesuffix('_v1'), row[0])}"
+                      f"{SAVED_METHODS.get(row[0], row[0])}"
                       for i, (rid, row) in enumerate(runs.items())}
             key = f"saved_run_{user_id}"
             if st.session_state.get(key) not in runs:
@@ -319,7 +320,7 @@ def recommendations(user_id, cutoff, liked_ids):
             with st.expander("Saved lists"):
                 run_id = st.selectbox("Choose a list", list(runs), key=key, format_func=labels.get)
             st.session_state[choice_key] = run_id
-            saved_method, generated_at, saved_cutoff = runs[run_id]
+            saved_method, generated_at, saved_cutoff, requested_k = runs[run_id]
             saved = conn.execute("""WITH genre_counts AS (
                     SELECT track_id, COUNT(*) AS n FROM public.song_genres GROUP BY track_id
                 ), preferences AS (
@@ -350,12 +351,17 @@ def recommendations(user_id, cutoff, liked_ids):
         st.info("No new songs found. Try Popularity in Options." if saved_method == "genre_v1"
                 else "No unheard songs are available for this listener.")
         return
+    if len(saved) < requested_k:
+        st.caption(f"This saved list contains {len(saved)} of {requested_k} requested songs.")
     results = pd.DataFrame(saved, columns=["Track ID", "Rank", "Song", "Artist", "Score", "Matched genre", "Has preferences"])
     results["Score"] = results["Score"].astype(float)
-    if saved_method == "genre_v1":
-        results["Reason"] = results.apply(lambda row: f"Matches your {row['Matched genre']} listening"
-            if row["Matched genre"] else "Popular pick · no genre history yet"
-            if not row["Has preferences"] else "Selected from your genre preferences", axis=1)
+    if saved_method == "genre_v2":
+        results["Reason"] = results.apply(lambda row: "Popular pick · no genre history yet"
+            if not row["Has preferences"] else "Popular pick · fills your list"
+            if row["Score"] == 0 else f"Matches your {row['Matched genre']} listening"
+            if row["Matched genre"] else "Selected from your genre preferences", axis=1)
+    elif saved_method == "genre_v1":
+        results["Reason"] = "Saved genre recommendation · earlier scoring version"
     elif saved_method == "popularity_v1":
         results["Reason"] = "Popular in the music catalog"
     else:
@@ -365,8 +371,8 @@ def recommendations(user_id, cutoff, liked_ids):
         st.write(f"Run ID: {run_id} · Method: {saved_method} · Generated: {generated_at.astimezone(timezone.utc).isoformat()}")
         st.write(f"History cutoff: {saved_cutoff.astimezone(timezone.utc).isoformat()}")
         st.caption("Scores reflect the scoring rules when a list was generated and aren't confidence percentages. "
-                   "Current genre lists weight plays by completion, so song length doesn't dominate preferences; "
-                   "earlier lists keep their original scores. Reasons are rebuilt from the current catalog "
+                   "Genre v2 weights plays by completion and fills remaining spots with popular songs; "
+                   "earlier lists keep their original scores and may use either previous scoring rule. Reasons are rebuilt from the current catalog "
                    "and history before this list's cutoff. Editing those records can change reasons; saved scores stay fixed.")
         st.dataframe(results[["Rank", "Song", "Artist", "Score", "Track ID"]], hide_index=True)
 
